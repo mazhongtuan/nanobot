@@ -277,6 +277,7 @@ class OpenAICompatProvider(LLMProvider):
     # Response parsing
     # ------------------------------------------------------------------
 
+    # dict or pydantic model with model_dump, or None
     @staticmethod
     def _maybe_mapping(value: Any) -> dict[str, Any] | None:
         if isinstance(value, dict):
@@ -288,6 +289,8 @@ class OpenAICompatProvider(LLMProvider):
                 return dumped
         return None
 
+    # None, str, or list of 'dictable' of {'text': str} or object.text or str
+    # return None, str, or concatenated str, or str(value)
     @classmethod
     def _extract_text_content(cls, value: Any) -> str | None:
         if value is None:
@@ -315,6 +318,8 @@ class OpenAICompatProvider(LLMProvider):
             return "".join(parts) or None
         return str(value)
 
+    # dictize response, get key or attribute to get usage
+    # dictize usage and get keys or attributes
     @classmethod
     def _extract_usage(cls, response: Any) -> dict[str, int]:
         usage_obj = None
@@ -350,6 +355,9 @@ class OpenAICompatProvider(LLMProvider):
         response_map = self._maybe_mapping(response)
         if response_map is not None:
             choices = response_map.get("choices") or []
+            # 这是针对 OpenAI Responses API（/v1/responses）或某些自定义 gateway
+            # 的格式。标准 Chat Completions API 总有 choices，但 Responses API
+            # 直接在顶层放 output_text：
             if not choices:
                 content = self._extract_text_content(
                     response_map.get("content")
@@ -363,11 +371,29 @@ class OpenAICompatProvider(LLMProvider):
                         ),
                         usage=self._extract_usage(response_map),
                     )
+<<<<<<< HEAD
                 return LLMResponse(
                     content="Error: API returned empty choices.",
                     finish_reason="error")
 
             # choices is not empty
+=======
+                return LLMResponse(content="Error: API returned empty choices.",
+                                   finish_reason="error")
+
+              # 标准 OpenAI JSON 格式：
+                # {
+                #     "choices": [
+                #       {
+                #         "message": {
+                #            "content": "Hello!",
+                #            "tool_calls": null
+                #          },
+                #         "finish_reason": "stop"
+                #       }
+                #     ]
+                # }
+>>>>>>> f40e88d (change)
 
             choice0 = self._maybe_mapping(choices[0]) or {}
             msg0 = self._maybe_mapping(choice0.get("message")) or {}
@@ -376,6 +402,19 @@ class OpenAICompatProvider(LLMProvider):
 
             raw_tool_calls: list[Any] = []
             reasoning_content = msg0.get("reasoning_content")
+            # 注意这里遍历所有 choices 而不只是 choices[0]。大部分 provider
+            # 只返回一个 choice，但某些 provider（如设置了 n=2 的 OpenAI）会返回多个。
+            # tool_calls 会从所有 choice 里收集。reasoning_content 是 DeepSeek R1
+            # 的扩展字段：
+            #   {
+            #         "choices": [{
+            #         "message": {
+            #             "content": "答案是42",
+            #             "reasoning_content": "<think>让我想想...</think>"
+            #         }
+            #         }]
+            #     }
+
             for ch in choices:
                 ch_map = self._maybe_mapping(ch) or {}
                 m = self._maybe_mapping(ch_map.get("message")) or {}
@@ -415,6 +454,8 @@ class OpenAICompatProvider(LLMProvider):
                     reasoning_content, str) else None,
             )
 
+        # when not dict, and not pandantic
+        # 永远走不到后面的代码
         if not response.choices:
             return LLMResponse(content="Error: API returned empty choices.",
                 finish_reason="error")

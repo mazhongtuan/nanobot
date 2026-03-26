@@ -48,7 +48,7 @@ class LLMResponse:
     usage: dict[str, int] = field(default_factory=dict)
     reasoning_content: str | None = None  # Kimi, DeepSeek-R1 etc.
     thinking_blocks: list[dict] | None = None  # Anthropic extended thinking
-    
+
     @property
     def has_tool_calls(self) -> bool:
         """Check if response contains tool calls."""
@@ -73,7 +73,7 @@ class GenerationSettings:
 class LLMProvider(ABC):
     """
     Abstract base class for LLM providers.
-    
+
     Implementations should handle the specifics of each provider's API
     while maintaining a consistent interface.
     """
@@ -101,9 +101,14 @@ class LLMProvider(ABC):
         self.api_base = api_base
         self.generation: GenerationSettings = GenerationSettings()
 
+
     @staticmethod
     def _sanitize_empty_content(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        """Sanitize message content: fix empty blocks, strip internal _meta fields."""
+        """
+        Sanitize message content: fix empty blocks, strip internal _meta fields.
+        """
+        # content can be None, (empty), list of dicts
+        # content can not be dict
         result: list[dict[str, Any]] = []
         for msg in messages:
             content = msg.get("content")
@@ -156,6 +161,8 @@ class LLMProvider(ABC):
         allowed_keys: frozenset[str],
     ) -> list[dict[str, Any]]:
         """Keep only provider-safe message keys and normalize assistant content."""
+        # only openapi model call this
+        # OpenAI API 要求 assistant 消息必须有 content 字段（哪怕是 null）。
         sanitized = []
         for msg in messages:
             clean = {k: v for k, v in msg.items() if k in allowed_keys}
@@ -177,7 +184,7 @@ class LLMProvider(ABC):
     ) -> LLMResponse:
         """
         Send a chat completion request.
-        
+
         Args:
             messages: List of message dicts with 'role' and 'content'.
             tools: Optional list of tool definitions.
@@ -185,7 +192,7 @@ class LLMProvider(ABC):
             max_tokens: Maximum tokens in response.
             temperature: Sampling temperature.
             tool_choice: Tool selection strategy ("auto", "required", or specific tool dict).
-        
+
         Returns:
             LLMResponse with content and/or tool calls.
         """
@@ -222,7 +229,7 @@ class LLMProvider(ABC):
         """Call chat() and convert unexpected exceptions to error responses."""
         try:
             return await self.chat(**kwargs)
-        except asyncio.CancelledError:
+        except asyncio.CancelledError: # 可以删掉
             raise
         except Exception as exc:
             return LLMResponse(content=f"Error calling LLM: {exc}", finish_reason="error")
@@ -263,6 +270,7 @@ class LLMProvider(ABC):
         except Exception as exc:
             return LLMResponse(content=f"Error calling LLM: {exc}", finish_reason="error")
 
+    # only called in _run_agent_loop中，model后面的参数都没传
     async def chat_stream_with_retry(
         self,
         messages: list[dict[str, Any]],
@@ -295,6 +303,7 @@ class LLMProvider(ABC):
             if response.finish_reason != "error":
                 return response
 
+            # 这里有bug
             if not self._is_transient_error(response.content):
                 stripped = self._strip_image_content(messages)
                 if stripped is not None:
