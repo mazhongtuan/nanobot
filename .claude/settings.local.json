@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find D:codenanobot -type f \\\\\\(-name *test* -o -name *example* \\\\\\) -path */providers/*)",
+      "Bash(find /d/code/nanobot -type f -name *.py -path */src/* -o -type f -name *.py -path */nanobot/*)"
+    ]
+  }
+}

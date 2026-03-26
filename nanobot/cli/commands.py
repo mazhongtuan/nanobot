@@ -383,10 +383,20 @@ def _make_provider(config: Config):
     from nanobot.providers.base import GenerationSettings
     from nanobot.providers.registry import find_by_name
 
+
+
     model = config.agents.defaults.model
+
+    # 1. 如果用户指定了一个不在列表的名字，那么provider_name 就是 None， spec 也是
+    # None，这会导致 api_key 和 api_base 都是 None
+    # 即使 model="bedrock/xxx" 跳过下面的验证，最终也跑不通
+    # 2. 如果是provider="auto"，但是没找到合适的provider，那么 provider_name 也是
+    # None， spec 也是 None，结果也一样
+    # 总之 spec 不能为none
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
     spec = find_by_name(provider_name) if provider_name else None
+
     backend = spec.backend if spec else "openai_compat"
 
     # --- validation ---

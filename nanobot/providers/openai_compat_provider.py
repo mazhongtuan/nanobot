@@ -41,7 +41,9 @@ def _get(obj: Any, key: str) -> Any:
 
 
 def _coerce_dict(value: Any) -> dict[str, Any] | None:
-    """Try to coerce *value* to a dict; return None if not possible or empty."""
+    """
+    Try to coerce *value* to a dict; return None if not possible or empty.
+    """
     if value is None:
         return None
     if isinstance(value, dict):
@@ -59,7 +61,9 @@ def _extract_tc_extras(tc: Any) -> tuple[
     dict[str, Any] | None,
     dict[str, Any] | None,
 ]:
-    """Extract (extra_content, provider_specific_fields, fn_provider_specific_fields).
+    """
+    Extract (extra_content, provider_specific_fields,
+    fn_provider_specific_fields).
 
     Works for both SDK objects and dicts.  Captures Gemini ``extra_content``
     verbatim and any non-standard keys on the tool-call / function.
@@ -71,7 +75,8 @@ def _extract_tc_extras(tc: Any) -> tuple[
     fn_prov = None
     if tc_dict is not None:
         leftover = {k: v for k, v in tc_dict.items()
-                    if k not in _STANDARD_TC_KEYS and k != "extra_content" and v is not None}
+                    if k not in _STANDARD_TC_KEYS
+                    and k != "extra_content" and v is not None}
         if leftover:
             prov = leftover
         fn = _coerce_dict(tc_dict.get("function"))
@@ -100,6 +105,7 @@ class OpenAICompatProvider(LLMProvider):
         self,
         api_key: str | None = None,
         api_base: str | None = None,
+        # config.agents.defaults.model
         default_model: str = "gpt-4o",
         extra_headers: dict[str, str] | None = None,
         spec: ProviderSpec | None = None,
@@ -112,7 +118,8 @@ class OpenAICompatProvider(LLMProvider):
         if api_key and spec and spec.env_key:
             self._setup_env(api_key, api_base)
 
-        effective_base = api_base or (spec.default_api_base if spec else None) or None
+        effective_base = (
+            api_base or (spec.default_api_base if spec else None) or None)
 
         self._client = AsyncOpenAI(
             api_key=api_key or "no-key",
@@ -134,7 +141,8 @@ class OpenAICompatProvider(LLMProvider):
             os.environ.setdefault(spec.env_key, api_key)
         effective_base = api_base or spec.default_api_base
         for env_name, env_val in spec.env_extras:
-            resolved = env_val.replace("{api_key}", api_key).replace("{api_base}", effective_base)
+            resolved = env_val.replace("{api_key}", api_key)
+            resolved = resolved.replace("{api_base}", effective_base)
             os.environ.setdefault(env_name, resolved)
 
     @staticmethod
@@ -150,7 +158,11 @@ class OpenAICompatProvider(LLMProvider):
             content = msg.get("content")
             if isinstance(content, str):
                 return {**msg, "content": [
-                    {"type": "text", "text": content, "cache_control": cache_marker},
+                    {
+                        "type": "text",
+                        "text": content,
+                        "cache_control": cache_marker,
+                    },
                 ]}
             if isinstance(content, list) and content:
                 nc = list(content)
@@ -178,15 +190,19 @@ class OpenAICompatProvider(LLMProvider):
             return tool_call_id
         return hashlib.sha1(tool_call_id.encode()).hexdigest()[:9]
 
-    def _sanitize_messages(self, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _sanitize_messages(
+        self, messages: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         """Strip non-standard keys, normalize tool_call IDs."""
-        sanitized = LLMProvider._sanitize_request_messages(messages, _ALLOWED_MSG_KEYS)
+        sanitized = LLMProvider._sanitize_request_messages(
+            messages, _ALLOWED_MSG_KEYS)
         id_map: dict[str, str] = {}
 
         def map_id(value: Any) -> Any:
             if not isinstance(value, str):
                 return value
-            return id_map.setdefault(value, self._normalize_tool_call_id(value))
+            return id_map.setdefault(
+                value, self._normalize_tool_call_id(value))
 
         for clean in sanitized:
             if isinstance(clean.get("tool_calls"), list):
@@ -217,30 +233,37 @@ class OpenAICompatProvider(LLMProvider):
         reasoning_effort: str | None,
         tool_choice: str | dict[str, Any] | None,
     ) -> dict[str, Any]:
+        # 无意义， 都是 config.agents.defaults.model
         model_name = model or self.default_model
+
         spec = self._spec
 
+        # 只有 openrouter and anthropic 的模型支持 prompt caching
         if spec and spec.supports_prompt_caching:
             messages, tools = self._apply_cache_control(messages, tools)
 
+        # spec不能为None, 只有4个provider设置了这个属性，都是openai类的
         if spec and spec.strip_model_prefix:
             model_name = model_name.split("/")[-1]
 
         kwargs: dict[str, Any] = {
             "model": model_name,
-            "messages": self._sanitize_messages(self._sanitize_empty_content(messages)),
+            "messages": self._sanitize_messages(
+                self._sanitize_empty_content(messages)),
             "max_tokens": max(1, max_tokens),
             "max_completion_tokens": max(1, max_tokens),
             "temperature": temperature,
         }
 
         if spec:
+            # model_overrides=(("kimi-k2.5", {"temperature": 1.0}),),
             model_lower = model_name.lower()
             for pattern, overrides in spec.model_overrides:
                 if pattern in model_lower:
                     kwargs.update(overrides)
                     break
 
+        # from config.agents.defaults.reasoning_effort
         if reasoning_effort:
             kwargs["reasoning_effort"] = reasoning_effort
 
@@ -275,15 +298,18 @@ class OpenAICompatProvider(LLMProvider):
             parts: list[str] = []
             for item in value:
                 item_map = cls._maybe_mapping(item)
+                # {'text': text}
                 if item_map:
                     text = item_map.get("text")
                     if isinstance(text, str):
                         parts.append(text)
                         continue
+                # item.text
                 text = getattr(item, "text", None)
                 if isinstance(text, str):
                     parts.append(text)
                     continue
+                # item itself is str
                 if isinstance(item, str):
                     parts.append(item)
             return "".join(parts) or None
@@ -302,14 +328,17 @@ class OpenAICompatProvider(LLMProvider):
         if usage_map is not None:
             return {
                 "prompt_tokens": int(usage_map.get("prompt_tokens") or 0),
-                "completion_tokens": int(usage_map.get("completion_tokens") or 0),
+                "completion_tokens": int(
+                    usage_map.get("completion_tokens") or 0
+                    ),
                 "total_tokens": int(usage_map.get("total_tokens") or 0),
             }
 
         if usage_obj:
             return {
                 "prompt_tokens": getattr(usage_obj, "prompt_tokens", 0) or 0,
-                "completion_tokens": getattr(usage_obj, "completion_tokens", 0) or 0,
+                "completion_tokens": getattr(
+                    usage_obj, "completion_tokens", 0) or 0,
                 "total_tokens": getattr(usage_obj, "total_tokens", 0) or 0,
             }
         return {}
@@ -323,15 +352,22 @@ class OpenAICompatProvider(LLMProvider):
             choices = response_map.get("choices") or []
             if not choices:
                 content = self._extract_text_content(
-                    response_map.get("content") or response_map.get("output_text")
+                    response_map.get("content")
+                    or response_map.get("output_text")
                 )
                 if content is not None:
                     return LLMResponse(
                         content=content,
-                        finish_reason=str(response_map.get("finish_reason") or "stop"),
+                        finish_reason=str(
+                            response_map.get("finish_reason") or "stop"
+                        ),
                         usage=self._extract_usage(response_map),
                     )
-                return LLMResponse(content="Error: API returned empty choices.", finish_reason="error")
+                return LLMResponse(
+                    content="Error: API returned empty choices.",
+                    finish_reason="error")
+
+            # choices is not empty
 
             choice0 = self._maybe_mapping(choices[0]) or {}
             msg0 = self._maybe_mapping(choice0.get("message")) or {}
@@ -375,11 +411,13 @@ class OpenAICompatProvider(LLMProvider):
                 tool_calls=parsed_tool_calls,
                 finish_reason=finish_reason,
                 usage=self._extract_usage(response_map),
-                reasoning_content=reasoning_content if isinstance(reasoning_content, str) else None,
+                reasoning_content=reasoning_content if isinstance(
+                    reasoning_content, str) else None,
             )
 
         if not response.choices:
-            return LLMResponse(content="Error: API returned empty choices.", finish_reason="error")
+            return LLMResponse(content="Error: API returned empty choices.",
+                finish_reason="error")
 
         choice = response.choices[0]
         msg = choice.message
@@ -428,7 +466,11 @@ class OpenAICompatProvider(LLMProvider):
 
         def _accum_tc(tc: Any, idx_hint: int) -> None:
             """Accumulate one streaming tool-call delta into *tc_bufs*."""
-            tc_index: int = _get(tc, "index") if _get(tc, "index") is not None else idx_hint
+            tc_index: int = (
+                _get(tc, "index")
+                if _get(tc, "index") is not None
+                else idx_hint
+            )
             buf = tc_bufs.setdefault(tc_index, {
                 "id": "", "name": "", "arguments": "",
                 "extra_content": None, "prov": None, "fn_prov": None,
@@ -463,7 +505,8 @@ class OpenAICompatProvider(LLMProvider):
                 if not choices:
                     usage = cls._extract_usage(chunk_map) or usage
                     text = cls._extract_text_content(
-                        chunk_map.get("content") or chunk_map.get("output_text")
+                        chunk_map.get("content")
+                        or chunk_map.get("output_text")
                     )
                     if text:
                         content_parts.append(text)
@@ -498,7 +541,11 @@ class OpenAICompatProvider(LLMProvider):
                 ToolCallRequest(
                     id=b["id"] or _short_tool_id(),
                     name=b["name"],
-                    arguments=json_repair.loads(b["arguments"]) if b["arguments"] else {},
+                    arguments=(
+                        json_repair.loads(b["arguments"])
+                        if b["arguments"]
+                        else {},
+                    ),
                     extra_content=b.get("extra_content"),
                     provider_specific_fields=b.get("prov"),
                     function_provider_specific_fields=b.get("fn_prov"),
@@ -511,8 +558,13 @@ class OpenAICompatProvider(LLMProvider):
 
     @staticmethod
     def _handle_error(e: Exception) -> LLMResponse:
-        body = getattr(e, "doc", None) or getattr(getattr(e, "response", None), "text", None)
-        msg = f"Error: {body.strip()[:500]}" if body and body.strip() else f"Error calling LLM: {e}"
+        body = getattr(e, "doc", None)
+        body = body or getattr(getattr(e, "response", None), "text", None)
+        msg = (
+            f"Error: {body.strip()[:500]}"
+            if body and body.strip()
+            else f"Error calling LLM: {e}"
+        )
         return LLMResponse(content=msg, finish_reason="error")
 
     # ------------------------------------------------------------------
@@ -534,7 +586,8 @@ class OpenAICompatProvider(LLMProvider):
             reasoning_effort, tool_choice,
         )
         try:
-            return self._parse(await self._client.chat.completions.create(**kwargs))
+            return self._parse(
+                await self._client.chat.completions.create(**kwargs))
         except Exception as e:
             return self._handle_error(e)
 
