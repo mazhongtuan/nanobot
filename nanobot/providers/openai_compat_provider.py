@@ -371,13 +371,6 @@ class OpenAICompatProvider(LLMProvider):
                         ),
                         usage=self._extract_usage(response_map),
                     )
-<<<<<<< HEAD
-                return LLMResponse(
-                    content="Error: API returned empty choices.",
-                    finish_reason="error")
-
-            # choices is not empty
-=======
                 return LLMResponse(content="Error: API returned empty choices.",
                                    finish_reason="error")
 
@@ -393,7 +386,6 @@ class OpenAICompatProvider(LLMProvider):
                 #       }
                 #     ]
                 # }
->>>>>>> f40e88d (change)
 
             choice0 = self._maybe_mapping(choices[0]) or {}
             msg0 = self._maybe_mapping(choice0.get("message")) or {}
