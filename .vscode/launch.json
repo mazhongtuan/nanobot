@@ -1,0 +1,19 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+      {
+          "name": "NanoBot Agent",
+          "type": "python",
+          "request": "launch",
+          "program": "./nanobot/__main__.py",
+          "console": "integratedTerminal",
+          "args": [
+              "agent"
+          ],
+          "env": {
+              "MY_VARIABLE": "some value"
+          },
+          "justMyCode": false
+      }
+  ]
+}

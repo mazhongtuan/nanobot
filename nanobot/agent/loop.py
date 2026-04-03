@@ -106,11 +106,13 @@ class AgentLoop:
         self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
         self._background_tasks: list[asyncio.Task] = []
         self._session_locks: dict[str, asyncio.Lock] = {}
+
         # NANOBOT_MAX_CONCURRENT_REQUESTS: <=0 means unlimited; default 3.
         _max = int(os.environ.get("NANOBOT_MAX_CONCURRENT_REQUESTS", "3"))
         self._concurrency_gate: asyncio.Semaphore | None = (
             asyncio.Semaphore(_max) if _max > 0 else None
         )
+
         self.memory_consolidator = MemoryConsolidator(
             workspace=workspace,
             provider=provider,
@@ -333,23 +335,32 @@ class AgentLoop:
 
         return final_content, tools_used, messages
 
+    # 非run_once的主入口
     async def run(self) -> None:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
+
+        # self.stop() turn this to False
+        # finally of agent() > run_interactive() will call this stop()
         self._running = True
+
         await self._connect_mcp()
+
         logger.info("Agent loop started")
 
         while self._running:
             try:
+                # inbound消息是用户输入--stdin
+                # 设置超市只能用 asyncio.wait_for
                 msg = await asyncio.wait_for(self.bus.consume_inbound(), timeout=1.0)
             except asyncio.TimeoutError:
                 continue
-            except asyncio.CancelledError:
+            except asyncio.CancelledError: # 这段似乎多余
                 # Preserve real task cancellation so shutdown can complete cleanly.
                 # Only ignore non-task CancelledError signals that may leak from integrations.
                 if not self._running or asyncio.current_task().cancelling():
-                    raise
-                continue
+                    raise # 真正的取消信号，允许它传播以停止循环
+                else:
+                    continue # 误捕获的取消信号，忽略它并继续循环，应该不会发生
             except Exception as e:
                 logger.warning("Error consuming inbound message: {}, continuing...", e)
                 continue
@@ -361,17 +372,29 @@ class AgentLoop:
                 if result:
                     await self.bus.publish_outbound(result)
                 continue
+
+            # active tasks 里面放 _dispatch task
             task = asyncio.create_task(self._dispatch(msg))
+
             self._active_tasks.setdefault(msg.session_key, []).append(task)
-            task.add_done_callback(lambda t, k=msg.session_key: self._active_tasks.get(k, []) and self._active_tasks[k].remove(t) if t in self._active_tasks.get(k, []) else None)
+
+            task.add_done_callback(
+                lambda t, k=msg.session_key:
+                    self._active_tasks.get(k, []) and self._active_tasks[k].remove(t)
+                    if t in self._active_tasks.get(k, []) else None
+            )
 
     async def _dispatch(self, msg: InboundMessage) -> None:
         """Process a message: per-session serial, cross-session concurrent."""
+
         lock = self._session_locks.setdefault(msg.session_key, asyncio.Lock())
         gate = self._concurrency_gate or nullcontext()
+
         async with lock, gate:
             try:
                 on_stream = on_stream_end = None
+                # 交互式的或者channel支持流式的，才会走这个分支
+                # 一次性的和subagent的消息不走这个分支
                 if msg.metadata.get("_wants_stream"):
                     # Split one answer into distinct stream segments.
                     stream_base_id = f"{msg.session_key}:{time.time_ns()}"
@@ -381,47 +404,72 @@ class AgentLoop:
                         return f"{stream_base_id}:{stream_segment}"
 
                     async def on_stream(delta: str) -> None:
-                        await self.bus.publish_outbound(OutboundMessage(
-                            channel=msg.channel, chat_id=msg.chat_id,
-                            content=delta,
-                            metadata={
-                                "_stream_delta": True,
-                                "_stream_id": _current_stream_id(),
-                            },
-                        ))
+                        await self.bus.publish_outbound(
+                            OutboundMessage(
+                                channel=msg.channel,
+                                chat_id=msg.chat_id,
+                                content=delta,
+                                metadata={
+                                    "_stream_delta": True,
+                                    "_stream_id": _current_stream_id(),
+                                },
+                            )
+                        )
 
                     async def on_stream_end(*, resuming: bool = False) -> None:
                         nonlocal stream_segment
-                        await self.bus.publish_outbound(OutboundMessage(
-                            channel=msg.channel, chat_id=msg.chat_id,
-                            content="",
-                            metadata={
-                                "_stream_end": True,
-                                "_resuming": resuming,
-                                "_stream_id": _current_stream_id(),
-                            },
-                        ))
+                        await self.bus.publish_outbound(
+                            OutboundMessage(
+                                channel=msg.channel,
+                                chat_id=msg.chat_id,
+                                content="",
+                                metadata={
+                                    "_stream_end": True,
+                                    "_resuming": resuming,
+                                    "_stream_id": _current_stream_id(),
+                                },
+                            )
+                        )
                         stream_segment += 1
 
+                    # end of _wants_stream handling
+
                 response = await self._process_message(
-                    msg, on_stream=on_stream, on_stream_end=on_stream_end,
+                    msg,
+                    on_stream=on_stream,
+                    on_stream_end=on_stream_end,
                 )
+
+                # MessageTool 的行为：在 _process_message 方法的末尾，如果
+                # MessageTool 在当前轮次中已经发送了消息
+                # （mt._sent_in_turn 为 True），方法会返回 None，
+                # 表示不需要额外的响应输出。这是因为工具已经直接通过总线发送了内容。
+
                 if response is not None:
                     await self.bus.publish_outbound(response)
                 elif msg.channel == "cli":
-                    await self.bus.publish_outbound(OutboundMessage(
-                        channel=msg.channel, chat_id=msg.chat_id,
-                        content="", metadata=msg.metadata or {},
-                    ))
+                    await self.bus.publish_outbound(
+                        OutboundMessage(
+                            channel=msg.channel,
+                            chat_id=msg.chat_id,
+                            content="",
+                            metadata=msg.metadata or {},
+                        )
+                    )
             except asyncio.CancelledError:
                 logger.info("Task cancelled for session {}", msg.session_key)
                 raise
             except Exception:
-                logger.exception("Error processing message for session {}", msg.session_key)
-                await self.bus.publish_outbound(OutboundMessage(
-                    channel=msg.channel, chat_id=msg.chat_id,
-                    content="Sorry, I encountered an error.",
-                ))
+                logger.exception(
+                    "Error processing message for session {}", msg.session_key)
+
+                await self.bus.publish_outbound(
+                    OutboundMessage(
+                        channel=msg.channel,
+                        chat_id=msg.chat_id,
+                        content="Sorry, I encountered an error.",
+                    )
+                )
 
     async def close_mcp(self) -> None:
         """Drain pending background archives, then close MCP connections."""
@@ -443,6 +491,8 @@ class AgentLoop:
 
     def stop(self) -> None:
         """Stop the agent loop."""
+        # asyncio.run(run_interactive())
+        # 结束后调用这个stop
         self._running = False
         logger.info("Agent loop stopping")
 
@@ -478,8 +528,11 @@ class AgentLoop:
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
             self._schedule_background(self.memory_consolidator.maybe_consolidate_by_tokens(session))
-            return OutboundMessage(channel=channel, chat_id=chat_id,
-                                  content=final_content or "Background task completed.")
+            return OutboundMessage(
+                channel=channel,
+                chat_id=chat_id,
+                content=final_content or "Background task completed.",
+            )
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
@@ -496,6 +549,8 @@ class AgentLoop:
         await self.memory_consolidator.maybe_consolidate_by_tokens(session)
 
         self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
+
+        # 两个多余的检查
         if message_tool := self.tools.get("message"):
             if isinstance(message_tool, MessageTool):
                 message_tool.start_turn()
@@ -512,9 +567,20 @@ class AgentLoop:
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint
-            await self.bus.publish_outbound(OutboundMessage(
-                channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
-            ))
+            await self.bus.publish_outbound(
+                OutboundMessage(
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
+                    content=content,
+                    metadata=meta,
+                )
+            )
+
+        # on_progress
+        # _cli_progress: 单消息CLI处理时使用
+        # _silent: 心跳任务使用
+        # _bus_progress: cron job, non-direct
+        #
 
         final_content, _, all_msgs = await self._run_agent_loop(
             initial_messages,
@@ -532,6 +598,7 @@ class AgentLoop:
         self.sessions.save(session)
         self._schedule_background(self.memory_consolidator.maybe_consolidate_by_tokens(session))
 
+         # 前两个检查是多余的。
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             return None
 
@@ -639,8 +706,16 @@ class AgentLoop:
     ) -> OutboundMessage | None:
         """Process a message directly and return the outbound payload."""
         await self._connect_mcp()
-        msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
+        msg = InboundMessage(
+            channel=channel,
+            sender_id="user",
+            chat_id=chat_id,
+            content=content,
+        )
         return await self._process_message(
-            msg, session_key=session_key, on_progress=on_progress,
-            on_stream=on_stream, on_stream_end=on_stream_end,
+            msg,
+            session_key=session_key,
+            on_progress=on_progress,
+            on_stream=on_stream,
+            on_stream_end=on_stream_end,
         )
