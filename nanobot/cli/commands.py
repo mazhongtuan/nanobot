@@ -585,7 +585,7 @@ def gateway(
         if isinstance(cron_tool, CronTool):
             cron_token = cron_tool.set_cron_context(True)
         try:
-            resp = await agent.process_direct(
+            resp = await agent.run_direct(
                 reminder_note,
                 session_key=f"cron:{job.id}",
                 channel=job.payload.channel or "cli",
@@ -642,7 +642,7 @@ def gateway(
         async def _silent(*_args, **_kwargs):
             pass
 
-        resp = await agent.process_direct(
+        resp = await agent.run_direct(
             tasks,
             session_key="heartbeat",
             channel=channel,
@@ -787,7 +787,7 @@ def agent(
         # Single message mode — direct call, no bus needed
         async def run_once():
             renderer = StreamRenderer(render_markdown=markdown)
-            response = await agent_loop.process_direct(
+            response = await agent_loop.run_direct(
                 message, session_id,
                 on_progress=_cli_progress,
                 on_stream=renderer.on_delta,

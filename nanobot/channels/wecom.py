@@ -138,23 +138,23 @@ class WecomChannel(BaseChannel):
 
     async def _on_text_message(self, frame: Any) -> None:
         """Handle text message."""
-        await self._process_message(frame, "text")
+        await self.process_message(frame, "text")
 
     async def _on_image_message(self, frame: Any) -> None:
         """Handle image message."""
-        await self._process_message(frame, "image")
+        await self.process_message(frame, "image")
 
     async def _on_voice_message(self, frame: Any) -> None:
         """Handle voice message."""
-        await self._process_message(frame, "voice")
+        await self.process_message(frame, "voice")
 
     async def _on_file_message(self, frame: Any) -> None:
         """Handle file message."""
-        await self._process_message(frame, "file")
+        await self.process_message(frame, "file")
 
     async def _on_mixed_message(self, frame: Any) -> None:
         """Handle mixed content message."""
-        await self._process_message(frame, "mixed")
+        await self.process_message(frame, "mixed")
 
     async def _on_enter_chat(self, frame: Any) -> None:
         """Handle enter_chat event (user opens chat with bot)."""
@@ -177,7 +177,7 @@ class WecomChannel(BaseChannel):
         except Exception as e:
             logger.error("Error handling enter_chat: {}", e)
 
-    async def _process_message(self, frame: Any, msg_type: str) -> None:
+    async def process_message(self, frame: Any, msg_type: str) -> None:
         """Process incoming message and forward to bus."""
         try:
             # Extract body from WsFrame dataclass or dict

@@ -498,7 +498,7 @@ class WeixinChannel(BaseChannel):
         msgs: list[dict] = data.get("msgs", []) or []
         for msg in msgs:
             try:
-                await self._process_message(msg)
+                await self.process_message(msg)
             except Exception as e:
                 logger.error("Error processing WeChat message: {}", e)
 
@@ -506,7 +506,7 @@ class WeixinChannel(BaseChannel):
     # Inbound message processing  (matches inbound.ts + process-message.ts)
     # ------------------------------------------------------------------
 
-    async def _process_message(self, msg: dict) -> None:
+    async def process_message(self, msg: dict) -> None:
         """Process a single WeixinMessage from getUpdates."""
         # Skip bot's own messages (message_type 2 = BOT)
         if msg.get("message_type") == MESSAGE_TYPE_BOT:
