@@ -251,6 +251,16 @@ class Config(BaseSettings):
         p, name = self._match_provider(model)
         if p and p.api_base:
             return p.api_base
+
+        # anthropic和azure_openai的provider的spec都没配api_base
+        # openai_codex配了，但是#sym:OpenAICodexProvider 根本没接收这个参数
+        # 所以真正的Config.get_api_base()影响的只有OpenAICompatProvider的，
+        # 但是这个proivder构造函数里面又fallback到了spec，那和直接统一都从spec
+        # 里面读效果不是一样的吗？
+        #     if spec and (spec.is_gateway or spec.is_local) and spec.default_api_base:
+        #         return spec.default_api_base
+        # 也就是说这段改成 if spec and spec.default_api_base对程序运行没有任何影响
+
         # Only gateways get a default api_base here. Standard providers
         # resolve their base URL from the registry in the provider constructor.
         if name:

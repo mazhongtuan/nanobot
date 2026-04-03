@@ -401,6 +401,8 @@ def _make_provider(config: Config):
 
     # --- validation ---
     if backend == "azure_openai":
+        # fixed name provider return config direcltly
+        # so p.api_key may be ''
         if not p or not p.api_key or not p.api_base:
             console.print("[red]Error: Azure OpenAI requires api_key and api_base.[/red]")
             console.print("Set them in ~/.nanobot/config.json under providers.azure_openai section")
@@ -417,9 +419,11 @@ def _make_provider(config: Config):
     # --- instantiation by backend ---
     if backend == "openai_codex":
         from nanobot.providers.openai_codex_provider import OpenAICodexProvider
+        # oauth
         provider = OpenAICodexProvider(default_model=model)
     elif backend == "azure_openai":
         from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
+        # no api_base in spec
         provider = AzureOpenAIProvider(
             api_key=p.api_key,
             api_base=p.api_base,
@@ -427,6 +431,7 @@ def _make_provider(config: Config):
         )
     elif backend == "anthropic":
         from nanobot.providers.anthropic_provider import AnthropicProvider
+        # no api_base in spec
         provider = AnthropicProvider(
             api_key=p.api_key if p else None,
             api_base=config.get_api_base(model),
