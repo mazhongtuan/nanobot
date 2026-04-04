@@ -838,6 +838,7 @@ def agent(
             renderer: StreamRenderer | None = None
 
             async def _consume_outbound():
+                # 消费 outbound消息
                 while True:
                     try:
                         msg = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
@@ -888,6 +889,7 @@ def agent(
             try:
                 while True:
                     try:
+                        # 消费用户输入，发布 inbound消息
                         _flush_pending_tty_input()
                         user_input = await _read_interactive_input_async()
                         command = user_input.strip()

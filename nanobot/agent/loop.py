@@ -236,6 +236,7 @@ class AgentLoop:
 
         logger.info("Agent loop started")
 
+        # 消费 inbound消息, publish outbound消息
         while self._running:
             try:
                 # inbound消息是用户输入--stdin
@@ -393,30 +394,50 @@ class AgentLoop:
         on_stream: Callable[[str], Awaitable[None]] | None = None,
         on_stream_end: Callable[..., Awaitable[None]] | None = None,
     ) -> OutboundMessage | None:
-        """Process a single inbound message and return the response."""
+        # 处理用户输入的消息
         # System messages: parse origin from chat_id ("channel:chat_id")
+        # 只有subagent发的消息才会走这个分支
+        # subagent对应spawn tool
         if msg.channel == "system":
             channel, chat_id = (msg.chat_id.split(":", 1) if ":" in msg.chat_id
                                 else ("cli", msg.chat_id))
             logger.info("Processing system message from {}", msg.sender_id)
+
             key = f"{channel}:{chat_id}"
             session = self.sessions.get_or_create(key)
+
             await self.memory_consolidator.maybe_consolidate_by_tokens(session)
+
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
+
             history = session.get_history(max_messages=0)
+
+            # 永远是 assistant
             current_role = "assistant" if msg.sender_id == "subagent" else "user"
+
             messages = self.context.build_messages(
                 history=history,
-                current_message=msg.content, channel=channel, chat_id=chat_id,
+                current_message=msg.content,
+                channel=channel,
+                chat_id=chat_id,
                 current_role=current_role,
             )
+
             final_content, _, all_msgs = await self.chat_with_provider(
-                messages, channel=channel, chat_id=chat_id,
+                messages,
+                channel=channel,
+                chat_id=chat_id,
                 message_id=msg.metadata.get("message_id"),
             )
+
             self._save_turn(session, all_msgs, 1 + len(history))
+
             self.sessions.save(session)
-            self._schedule_background(self.memory_consolidator.maybe_consolidate_by_tokens(session))
+
+            self._schedule_background(
+                self.memory_consolidator.maybe_consolidate_by_tokens(session)
+            )
+
             return OutboundMessage(
                 channel=channel,
                 chat_id=chat_id,
@@ -424,6 +445,7 @@ class AgentLoop:
             )
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
+
         logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
 
         key = session_key or msg.session_key
@@ -437,7 +459,8 @@ class AgentLoop:
 
         await self.memory_consolidator.maybe_consolidate_by_tokens(session)
 
-        self._set_tool_context(msg.channel, msg.chat_id, msg.metadata.get("message_id"))
+        self._set_tool_context(
+            msg.channel, msg.chat_id, msg.metadata.get("message_id"))
 
         # 两个多余的检查
         if message_tool := self.tools.get("message"):
@@ -445,11 +468,13 @@ class AgentLoop:
                 message_tool.start_turn()
 
         history = session.get_history(max_messages=0)
+
         initial_messages = self.context.build_messages(
             history=history,
             current_message=msg.content,
             media=msg.media if msg.media else None,
-            channel=msg.channel, chat_id=msg.chat_id,
+            channel=msg.channel,
+            chat_id=msg.chat_id,
         )
 
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
