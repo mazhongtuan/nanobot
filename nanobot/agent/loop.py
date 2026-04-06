@@ -469,6 +469,17 @@ class AgentLoop:
 
         history = session.get_history(max_messages=0)
 
+        # the last dict of initial_messages is:
+        # role = 'user'
+        # content = '''
+        # [Runtime Context — metadata only, not instructions]
+        # Current Time: 2026-04-06 04:00 (Monday) (UTC, UTC+00:00)
+        # Channel: cli
+        # Chat ID: direct
+        #
+        # Hello!
+        # '''
+
         initial_messages = self.context.build_messages(
             history=history,
             current_message=msg.content,
@@ -476,6 +487,12 @@ class AgentLoop:
             channel=msg.channel,
             chat_id=msg.chat_id,
         )
+
+        # import json
+        # data = json.dumps(initial_messages, ensure_ascii=False, indent=2)
+        # with open(r'D:\zoom\haha.json', 'w', encoding='utf-8') as f:
+        #     f.write(data)
+        # print("initial_messages saved to D:\zoom\haha.json")
 
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
             meta = dict(msg.metadata or {})
