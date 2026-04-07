@@ -78,7 +78,7 @@ Skills with available="false" need dependencies installed first - you can try in
 You are nanobot, a helpful AI assistant.
 
 ## Runtime
-{{contex.system}} {{contex.macine}}, Python {{context.python_version}}
+{runtime}
 
 ## Workspace
 Your workspace is at: {workspace_path}
