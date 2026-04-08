@@ -773,6 +773,7 @@ def agent(
     )
 
     # Shared reference for progress callbacks
+    # 好像永远是None
     _thinking: ThinkingSpinner | None = None
 
     async def _cli_progress(content: str, *, tool_hint: bool = False) -> None:
