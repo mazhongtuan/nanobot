@@ -11,6 +11,9 @@ from typing import Any
 import tiktoken
 
 
+# text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+# text = re.sub(r"<think>.*$", "", text, flags=re.DOTALL)
+
 def strip_think(text: str) -> str:
     """Remove <think>…</think> blocks and any unclosed trailing <think> tag."""
     text = re.sub(r"<think>[\s\S]*?</think>", "", text)
